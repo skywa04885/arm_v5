@@ -48,6 +48,8 @@ where
 
         Self::write_value(buf_writer, value).await?;
 
+        buf_writer.flush().await?;
+
         Ok(())
     }
 
@@ -64,6 +66,8 @@ where
         Self::write_tag(buf_writer, tag).await?;
         Self::write_value(buf_writer, value).await?;
 
+        buf_writer.flush().await?;
+
         Ok(())
     }
 
@@ -77,6 +81,8 @@ where
 
         Self::write_tag(buf_writer, tag).await?;
         Self::write_value(buf_writer, value).await?;
+
+        buf_writer.flush().await?;
 
         Ok(())
     }
