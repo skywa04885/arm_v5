@@ -4,7 +4,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, BufReader};
 
 use crate::{
     error::Error,
-    proto::{Command, Event, Packet, Tag},
+    proto::{CommandCode, EventCode, Packet, Tag},
 };
 
 /// This struct is meant to read packets from a buffered reader.
@@ -39,7 +39,7 @@ where
 
     /// Read an event from the given buffered reader.
     pub(self) async fn read_event(buf_reader: &mut BufReader<R>) -> Result<Packet, Error> {
-        let event = Event::new(buf_reader.read_u32().await?);
+        let event = EventCode::new(buf_reader.read_u32().await?);
         let value = Self::read_value(buf_reader).await?;
 
         Ok(Packet::Event(event, value))
@@ -47,7 +47,7 @@ where
 
     /// Read a command from the given buffered reader.
     pub(self) async fn read_command(buf_reader: &mut BufReader<R>) -> Result<Packet, Error> {
-        let command = Command::new(buf_reader.read_u32().await?);
+        let command = CommandCode::new(buf_reader.read_u32().await?);
         let tag = Self::read_tag(buf_reader).await?;
         let value = Self::read_value(buf_reader).await?;
 

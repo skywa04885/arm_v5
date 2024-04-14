@@ -4,7 +4,7 @@ use tokio::io::{AsyncWrite, AsyncWriteExt, BufWriter};
 
 use crate::{
     error::Error,
-    proto::{Command, Event, Packet, Tag},
+    proto::{CommandCode, EventCode, Packet, Tag},
 };
 
 /// This struct is meant to write packets to a buffered reader.
@@ -40,7 +40,7 @@ where
     /// Write the given event to the given buffered writer.
     pub(self) async fn write_event(
         buf_writer: &mut BufWriter<W>,
-        event: &Event,
+        event: &EventCode,
         value: &Vec<u8>,
     ) -> Result<(), Error> {
         buf_writer.write_u8(Packet::EVENT_IDENTIFIER).await?;
@@ -56,7 +56,7 @@ where
     /// Write the given command to the given buffered writer.
     pub(self) async fn write_command(
         buf_writer: &mut BufWriter<W>,
-        command: &Command,
+        command: &CommandCode,
         tag: &Tag,
         value: &Vec<u8>,
     ) -> Result<(), Error> {

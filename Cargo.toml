@@ -1,2 +1,3 @@
 [workspace]
-members = ["com"]
+members = ["com", "arm_interface/src-tauri"]
+resolver = "2"

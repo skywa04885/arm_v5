@@ -1,9 +1,9 @@
 #[derive(Clone, Copy, Debug, PartialEq, Hash, Eq, PartialOrd, Ord)]
-pub struct Event(u32);
+pub struct EventCode(u32);
 
-impl Event {
+impl EventCode {
     #[inline(always)]
-    pub fn new(inner: u32) -> Self {
+    pub const fn new(inner: u32) -> Self {
         Self(inner)
     }
 
@@ -14,9 +14,9 @@ impl Event {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Command(u32);
+pub struct CommandCode(u32);
 
-impl Command {
+impl CommandCode {
     #[inline(always)]
     pub fn new(inner: u32) -> Self {
         Self(inner)
@@ -45,8 +45,8 @@ impl Tag {
 
 #[derive(Debug)]
 pub enum Packet {
-    Event(Event, Vec<u8>),
-    Command(Command, Tag, Vec<u8>),
+    Event(EventCode, Vec<u8>),
+    Command(CommandCode, Tag, Vec<u8>),
     Reply(Tag, Vec<u8>),
 }
 

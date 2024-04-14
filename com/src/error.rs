@@ -10,4 +10,8 @@ pub enum Error {
     Generic(Cow<'static, str>),
     #[error("Operation cancelled")]
     Cancelled,
+    #[error("Serde serialization error")]
+    SerdeSerError,
+    #[error("Deserialization error")]
+    DeserializeError,
 }

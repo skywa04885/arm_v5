@@ -3,27 +3,42 @@ use std::sync::{
     Arc,
 };
 
+use serde::{de::DeserializeOwned, Serialize};
 use tokio::{
     io::{AsyncRead, AsyncWrite},
-    join,
     net::{
         tcp::{OwnedReadHalf, OwnedWriteHalf},
         TcpStream, ToSocketAddrs,
     },
     select,
-    sync::mpsc,
+    sync::{mpsc, oneshot},
 };
 use tokio_util::sync::CancellationToken;
 
 use crate::{
     error::Error,
-    proto::{Command, Event, Packet, Tag},
+    proto::{CommandCode, EventCode, Packet, Tag},
 };
 
 use self::receiver::SubscriberId;
 
 pub mod receiver;
 pub mod transmitter;
+
+/// This trait means that the thing implementing it is a command.
+pub trait Command: Serialize {
+    /// Get the command code.
+    fn code(&self) -> CommandCode;
+}
+
+/// This trait means that the thing implemting it is a reply.
+pub trait Reply: DeserializeOwned {}
+
+/// This trait means that the thing implementing it is an event.
+pub trait Event: DeserializeOwned {
+    /// Get the event code.
+    fn code(&self) -> EventCode;
+}
 
 /// This struct represents the tag generator.
 pub(self) struct TagGenerator {
@@ -118,7 +133,10 @@ pub struct Handle {
 
 impl Handle {
     /// Create a new client.
-    pub(self) fn new(transmitter_handle: transmitter::Handle, receiver_handle: receiver::Handle) -> Self {
+    pub(self) fn new(
+        transmitter_handle: transmitter::Handle,
+        receiver_handle: receiver::Handle,
+    ) -> Self {
         Self {
             tag_generator: TagGenerator::new(),
             transmitter_handle,
@@ -126,10 +144,35 @@ impl Handle {
         }
     }
 
-    /// Write the given command and call the given closure when the reply is received.
-    pub async fn write_command_closure<F>(
+    /// Write the given serializable command and reply to the given closure.
+    pub async fn write_serializable_command_reply_to_closure<S, F, R>(
         &self,
-        command: Command,
+        command: S,
+        closure: F,
+    ) -> Result<(), Error>
+    where
+        S: Command,
+        F: FnOnce(Result<R, Error>) + Send + Sync + 'static,
+        R: Reply,
+    {
+        // Get the command code.
+        let code = command.code();
+
+        // Serialize the command to a byte vector.
+        let value = rmp_serde::to_vec(&command).map_err(|_| Error::SerdeSerError)?;
+
+        // Write the serialized command and return it's result.
+        self.write_command_reply_to_closure(code, value, move |x| {
+            // Decode the received reply and call the closure with either the error or the result.
+            closure(rmp_serde::from_slice(&x).map_err(|_| Error::DeserializeError))
+        })
+        .await
+    }
+
+    /// Write the given command and call the given closure when the reply is received.
+    pub async fn write_command_reply_to_closure<F>(
+        &self,
+        code: CommandCode,
         value: Vec<u8>,
         closure: F,
     ) -> Result<(), Error>
@@ -138,13 +181,13 @@ impl Handle {
     {
         // Generate the tag of the command and create the packet.
         let tag = self.tag_generator.generate();
-        let packet = Packet::Command(command, tag, value);
+        let packet = Packet::Command(code, tag, value);
 
         // Subscribe to the reply.
         self.receiver_handle
             .subscribers()
             .subscribe_to_reply_with_closure(tag, closure)
-            .await;
+            .await?;
 
         // Write the packet to the transmitter.
         self.transmitter_handle.write_packet(packet).await?;
@@ -154,21 +197,21 @@ impl Handle {
     }
 
     /// Write the given command and return a receiver that will receive the reply.
-    pub async fn write_command_channel(
+    pub async fn write_command_reply_to_channel(
         &self,
-        command: Command,
+        code: CommandCode,
         value: Vec<u8>,
-    ) -> Result<tokio::sync::oneshot::Receiver<Vec<u8>>, Error> {
+    ) -> Result<oneshot::Receiver<Vec<u8>>, Error> {
         // Generate the tag of the command and create the packet.
         let tag = self.tag_generator.generate();
-        let packet = Packet::Command(command, tag, value);
+        let packet = Packet::Command(code, tag, value);
 
         // Subscribe to the reply.
         let receiver = self
             .receiver_handle
             .subscribers()
             .subscribe_to_reply_with_channel(tag)
-            .await;
+            .await?;
 
         // Write the packet to the transmitter.
         self.transmitter_handle.write_packet(packet).await?;
@@ -178,29 +221,32 @@ impl Handle {
     }
 
     /// Subscribe to the given event in a way that the closure gets called when it's sent.
-    pub async fn subscribe_to_event_with_closure<F>(
+    pub async fn subscribe_to_event_with_closure<F, E>(
         &self,
-        event: Event,
+        code: EventCode,
         closure: F,
     ) -> Result<SubscriberId, Error>
     where
-        F: Fn(Vec<u8>) + Send + Sync + 'static,
+        F: Fn(Result<E, Error>) + Send + Sync + 'static,
+        E: Event,
     {
         self.receiver_handle
             .subscribers()
-            .subscribe_to_event_with_closure(event, closure)
+            .subscribe_to_event_with_closure(code, move |x| {
+                closure(rmp_serde::from_slice(&x).map_err(|_| Error::DeserializeError))
+            })
             .await
     }
 
-    /// Subscribe to the given event and return a receiver that will receive the events.
-    pub async fn subscribe_to_event_with_channel(
+    /// Unsubscribe the subscriber that has the given id from the given event.
+    pub async fn unsubscribe_from_event(
         &self,
-        event: Event,
-    ) -> Result<(SubscriberId, mpsc::Receiver<Vec<u8>>), Error> {
-        // Subscribe to the event.
+        code: EventCode,
+        subscriber_id: SubscriberId,
+    ) -> Result<(), Error> {
         self.receiver_handle
             .subscribers()
-            .subscribe_to_event_with_channel(event)
+            .unsubscribe_from_event(code, subscriber_id)
             .await
     }
 }

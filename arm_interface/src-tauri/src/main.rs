@@ -32,6 +32,7 @@ use tokio::{
 
 mod frontend;
 mod kinematics;
+mod servo_com;
 
 struct ArmState {
     pub kinematic_parameters: KinematicParameters,

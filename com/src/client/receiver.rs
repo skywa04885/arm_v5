@@ -16,7 +16,7 @@ use tokio_util::sync::CancellationToken;
 use crate::{
     error::Error,
     net::PacketReader,
-    proto::{Event, Packet, Tag},
+    proto::{EventCode, Packet, Tag},
 };
 
 /// This struct represents a subscriber id.
@@ -104,7 +104,7 @@ pub(self) enum EventSubscriber {
 pub(crate) struct Subscribers {
     reply_subscribers: Arc<RwLock<HashMap<Tag, ReplySubscriber>>>,
     event_subscribers:
-        Arc<RwLock<HashMap<Event, Arc<RwLock<Vec<(SubscriberId, EventSubscriber)>>>>>>,
+        Arc<RwLock<HashMap<EventCode, Arc<RwLock<Vec<(SubscriberId, EventSubscriber)>>>>>>,
     subscriber_id_generator: SubscriberIdGenerator,
 }
 
@@ -127,7 +127,7 @@ impl Subscribers {
     /// Get the event subscribers that subscribed to the given event.
     pub(self) async fn get_event_subscribers_with_tag(
         &self,
-        event: Event,
+        event: EventCode,
     ) -> Option<Arc<RwLock<Vec<(SubscriberId, EventSubscriber)>>>> {
         let event_subscribers = self.event_subscribers.read().await;
         event_subscribers.get(&event).map(|x| x.clone())
@@ -136,7 +136,7 @@ impl Subscribers {
     /// Subscribe to the event that has the given event.
     pub(self) async fn subscribe_to_event(
         &self,
-        event: Event,
+        event: EventCode,
         subscriber: EventSubscriber,
     ) -> Result<SubscriberId, Error> {
         // Generate the subscriber id.
@@ -159,10 +159,50 @@ impl Subscribers {
         Ok(subscriber_id)
     }
 
-    /// subscribe to the event using a newly created channel.
-    pub(crate) async fn subscribe_to_event_with_channel(
+    /// Unsubscribe the subscriber with the given id from the given event.
+    pub(super) async fn unsubscribe_from_event(
         &self,
-        event: Event,
+        event: EventCode,
+        subscriber_id: SubscriberId,
+    ) -> Result<(), Error> {
+        // Acquire the lock for the event subscribers.
+        let event_subscribers = self.event_subscribers.read().await;
+
+        // Get all the subscribers of the event.
+        if let Some(subscribers) = event_subscribers.get(&event).map(|x| x.clone()) {
+            // Acquire a lock on the subscribers list.
+            let mut subscribers = subscribers.write().await;
+
+            // Get the initial length of the subscribers vector so we can determine if items were removed.
+            let initial_len = subscribers.len();
+
+            // Remove the subscriber that has the given id.
+            subscribers.retain(|(x, _)| *x != subscriber_id);
+
+            // Check if items were removed, if not, return an error.
+            if initial_len == subscribers.len() {
+                Err(Error::Generic(
+                    format!(
+                        "No subscriber with id {} found in subscriber vector for event {}",
+                        subscriber_id.inner(),
+                        event.inner()
+                    )
+                    .into(),
+                ))
+            } else {
+                Ok(())
+            }
+        } else {
+            Err(Error::Generic(
+                format!("No subscriber vector found for event {}", event.inner()).into(),
+            ))
+        }
+    }
+
+    /// subscribe to the event using a newly created channel.
+    pub(super) async fn subscribe_to_event_with_channel(
+        &self,
+        event: EventCode,
     ) -> Result<(SubscriberId, mpsc::Receiver<Vec<u8>>), Error> {
         // Create the channel.
         let (channel_sender, channel_receiver) = mpsc::channel(64_usize);
@@ -177,9 +217,9 @@ impl Subscribers {
     }
 
     /// Subscribe to the reply that has the given event using the given closure.
-    pub(crate) async fn subscribe_to_event_with_closure<F>(
+    pub(super) async fn subscribe_to_event_with_closure<F>(
         &self,
-        event: Event,
+        event: EventCode,
         closure: F,
     ) -> Result<SubscriberId, Error>
     where
@@ -194,34 +234,67 @@ impl Subscribers {
         Ok(subscriber_id)
     }
 
-    /// Subscribe to the reply using a newly created channel.
-    pub(crate) async fn subscribe_to_reply_with_channel(
+    /// Subscribe to the reply that has the given tag.
+    pub(self) async fn subscribe_to_reply(
         &self,
         tag: Tag,
-    ) -> oneshot::Receiver<Vec<u8>> {
+        subscriber: ReplySubscriber,
+    ) -> Result<(), Error> {
+        // Insert the channel into the reply subscribers.
+        let mut reply_subscribers = self.reply_subscribers.write().await;
+        reply_subscribers.entry(tag).or_insert(subscriber);
+
+        // Return success.
+        Ok(())
+    }
+
+    /// Subscribe to the reply using a newly created channel.
+    pub(super) async fn subscribe_to_reply_with_channel(
+        &self,
+        tag: Tag,
+    ) -> Result<oneshot::Receiver<Vec<u8>>, Error> {
         // Create the channel.
         let (channel_sender, channel_receiver) = oneshot::channel();
 
-        // Insert the channel into the reply subscribers.
-        let mut reply_subscribers = self.reply_subscribers.write().await;
-        reply_subscribers
-            .entry(tag)
-            .or_insert_with(|| ReplySubscriber::Channel(channel_sender));
+        // Subscribe.
+        self.subscribe_to_reply(tag, ReplySubscriber::Channel(channel_sender))
+            .await?;
 
         // Return the receiver.
-        channel_receiver
+        Ok(channel_receiver)
     }
 
     /// Subscribe to the reply that has the given tag using the given closure.
-    pub(crate) async fn subscribe_to_reply_with_closure<F>(&self, tag: Tag, closure: F)
+    pub(super) async fn subscribe_to_reply_with_closure<F>(
+        &self,
+        tag: Tag,
+        closure: F,
+    ) -> Result<(), Error>
     where
         F: FnOnce(Vec<u8>) + Send + Sync + 'static,
     {
-        // Insert the closure into the reply subscribers.
+        // Subscribe.
+        self.subscribe_to_reply(tag, ReplySubscriber::Closure(Box::new(closure)))
+            .await?;
+
+        // Return the receiver.
+        Ok(())
+    }
+
+    /// Unsubscribe from the reply with the given tag.
+    pub(super) async fn unsubscribe_from_reply(&self, tag: Tag) -> Result<(), Error> {
+        // Acquire a write lock to the write subscribers.
         let mut reply_subscribers = self.reply_subscribers.write().await;
-        reply_subscribers
-            .entry(tag)
-            .or_insert_with(|| ReplySubscriber::Closure(Box::new(closure)));
+
+        // Remove the subscriber, and return either success or error depending on if
+        //  it was removed.
+        if let Some(_) = reply_subscribers.remove(&tag) {
+            Err(Error::Generic(
+                format!("Could not find reply subscriber for tag: {}", tag.inner()).into(),
+            ))
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -246,7 +319,7 @@ where
     }
 
     /// Handle the given event.
-    pub(self) async fn handle_event(&mut self, event: Event, value: Vec<u8>) -> Result<(), Error> {
+    pub(self) async fn handle_event(&mut self, event: EventCode, value: Vec<u8>) -> Result<(), Error> {
         if let Some(subscribers) = self.subscribers.get_event_subscribers_with_tag(event).await {
             // Acquire the lock for the subscribers.
             let subscribers = subscribers.read().await;
@@ -323,8 +396,6 @@ where
                 }
             }
         }
-
-        Ok(())
     }
 }
 
