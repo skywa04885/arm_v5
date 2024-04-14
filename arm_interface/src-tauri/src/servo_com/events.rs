@@ -1,7 +1,7 @@
 use com::{client::Event, proto::EventCode};
 use serde::Deserialize;
 
-/// Event that is emitted when the arm pose changes.    
+/// Represents an event that is emitted when the arm pose changes.
 #[derive(Deserialize)]
 pub struct PoseChangedEvent {
     pub angles: [f64; 5],
@@ -14,7 +14,7 @@ impl Event for PoseChangedEvent {
     }
 }
 
-/// Event that gets emitted when the buffer is partially drained.
+/// Represents an event that is emitted when the buffer is partially drained.
 #[derive(Deserialize)]
 pub struct PoseBufferDrainEvent {
     pub available: usize,
@@ -27,7 +27,7 @@ impl Event for PoseBufferDrainEvent {
     }
 }
 
-/// Event that gets emitted when the pose buffer is empty.
+/// Represents an event that is emitted when the pose buffer is empty.
 #[derive(Deserialize)]
 pub struct PoseBufferEmptyEvent {}
 

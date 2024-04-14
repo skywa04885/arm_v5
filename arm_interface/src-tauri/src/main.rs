@@ -1,8 +1,9 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::{error::Error, sync::Arc};
+use std::{error::Error, sync::Arc, time::Duration};
 
+use com::client::Client;
 use frontend::{
     commands::arm::{
         GetKinematicParametersResponse, GetKinematicStateResponse, GetVerticesResponse,
@@ -21,7 +22,7 @@ use kinematics::{
             heuristic::HeuristicSolverBuilder, KinematicInverseSolverResult, KinematicSolver,
         },
     },
-    model::{KinematicParameters, KinematicState},
+    model::{KinematicParameters, KinematicState}, motion::player::{Configuration, Player},
 };
 use nalgebra::Vector3;
 use tauri::Manager;
@@ -29,6 +30,7 @@ use tokio::{
     spawn,
     sync::watch::{Receiver as WatchReceiver, Sender as WatchSender},
 };
+use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
 mod frontend;
 mod kinematics;
@@ -169,6 +171,32 @@ async fn handle_arm_state_changes(app_handle: tauri::AppHandle) -> Result<(), Bo
 
 #[tokio::main]
 async fn main() {
+    let (client_handle, mut client_worker) = Client::connect("127.0.0.1:5000").await.unwrap();
+
+    let motion_player_configuration = Configuration::new(Duration::from_millis(50));
+    let (mut player_worker, player_handle) = Player::new(client_handle, motion_player_configuration);
+
+    let task_tracker = TaskTracker::new();
+    let cancellation_token = CancellationToken::new();
+
+    // Spawn the client worker.
+    task_tracker.spawn({
+        let cancellation_token = cancellation_token.clone();
+
+        async move {
+            client_worker.run(cancellation_token).await.unwrap();
+        }
+    });
+
+    // Spawn the motion player worker.
+    task_tracker.spawn({
+        let cancellation_token = cancellation_token.clone();
+
+        async move {
+            player_worker.run(cancellation_token).await.unwrap();
+        }
+    });
+
     tauri::Builder::default()
         .manage(ArmState::default())
         .invoke_handler(tauri::generate_handler![
@@ -188,4 +216,9 @@ async fn main() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+
+    cancellation_token.cancel();
+
+    task_tracker.close();
+    task_tracker.wait().await;
 }

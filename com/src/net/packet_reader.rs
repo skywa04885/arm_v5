@@ -20,6 +20,14 @@ where
     R: AsyncRead + Unpin,
 {
     /// Read the value of a packet from the given buffered reader.
+    ///
+    /// # Arguments
+    ///
+    /// * `buf_reader` - The buffered reader to read from.
+    ///
+    /// # Returns
+    ///
+    /// Returns a `Result` containing the read value as a `Vec<u8>`, or an `Error` if reading fails.
     pub(self) async fn read_value(buf_reader: &mut BufReader<R>) -> Result<Vec<u8>, Error> {
         // Read the length of the value.
         let len = buf_reader.read_u32().await?;
@@ -33,11 +41,27 @@ where
     }
 
     /// Read a tag from the given buffered reader.
+    ///
+    /// # Arguments
+    ///
+    /// * `buf_reader` - The buffered reader to read from.
+    ///
+    /// # Returns
+    ///
+    /// Returns a `Result` containing the read tag as a `Tag`, or an `Error` if reading fails.
     pub(self) async fn read_tag(buf_reader: &mut BufReader<R>) -> Result<Tag, Error> {
         Ok(Tag::new(buf_reader.read_u64().await?))
     }
 
     /// Read an event from the given buffered reader.
+    ///
+    /// # Arguments
+    ///
+    /// * `buf_reader` - The buffered reader to read from.
+    ///
+    /// # Returns
+    ///
+    /// Returns a `Result` containing the read event as a `Packet`, or an `Error` if reading fails.
     pub(self) async fn read_event(buf_reader: &mut BufReader<R>) -> Result<Packet, Error> {
         let event = EventCode::new(buf_reader.read_u32().await?);
         let value = Self::read_value(buf_reader).await?;
@@ -46,6 +70,14 @@ where
     }
 
     /// Read a command from the given buffered reader.
+    ///
+    /// # Arguments
+    ///
+    /// * `buf_reader` - The buffered reader to read from.
+    ///
+    /// # Returns
+    ///
+    /// Returns a `Result` containing the read command as a `Packet`, or an `Error` if reading fails.
     pub(self) async fn read_command(buf_reader: &mut BufReader<R>) -> Result<Packet, Error> {
         let command = CommandCode::new(buf_reader.read_u32().await?);
         let tag = Self::read_tag(buf_reader).await?;
@@ -55,6 +87,14 @@ where
     }
 
     /// Read a reply from the given buffered reader.
+    ///
+    /// # Arguments
+    ///
+    /// * `buf_reader` - The buffered reader to read from.
+    ///
+    /// # Returns
+    ///
+    /// Returns a `Result` containing the read reply as a `Packet`, or an `Error` if reading fails.
     pub(self) async fn read_reply(buf_reader: &mut BufReader<R>) -> Result<Packet, Error> {
         let tag = Self::read_tag(buf_reader).await?;
         let value = Self::read_value(buf_reader).await?;
@@ -63,6 +103,14 @@ where
     }
 
     /// Read a packet from the given buffered reader.
+    ///
+    /// # Arguments
+    ///
+    /// * `buf_reader` - The buffered reader to read from.
+    ///
+    /// # Returns
+    ///
+    /// Returns a `Result` containing the read packet as a `Packet`, or an `Error` if reading fails.
     pub(crate) async fn read(buf_reader: &mut BufReader<R>) -> Result<Packet, Error> {
         // Read the identifier so we know what packet we're dealing with.
         let identifier = buf_reader.read_u8().await?;

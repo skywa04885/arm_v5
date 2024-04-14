@@ -144,6 +144,38 @@ impl Handle {
         }
     }
 
+    pub async fn write_serializable_command_with_cancellation<C, R>(
+        &self,
+        command: C,
+        cancellation_token: &CancellationToken,
+    ) -> Result<R, Error>
+    where
+        C: Command,
+        R: Reply,
+    {
+        select! {
+            result = self.write_serializable_command::<C, R>(command) => result,
+            _ = cancellation_token.cancelled() => Err(Error::Cancelled),
+        }
+    }
+
+    pub async fn write_serializable_command<C, R>(&self, command: C) -> Result<R, Error>
+    where
+        C: Command,
+        R: Reply,
+    {
+        let code = command.code();
+        let value = rmp_serde::to_vec(&command).map_err(|_| Error::SerdeSerError)?;
+
+        let vec = self
+            .write_command_reply_to_channel(code, value)
+            .await?
+            .await
+            .map_err(|_| Error::Generic("Failed to receive reply.".into()))?;
+
+        rmp_serde::from_slice(&vec).map_err(|_| Error::DeserializeError)
+    }
+
     /// Write the given serializable command and reply to the given closure.
     pub async fn write_serializable_command_reply_to_closure<S, F, R>(
         &self,

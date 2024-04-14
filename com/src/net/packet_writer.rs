@@ -20,6 +20,15 @@ where
     W: AsyncWrite + Unpin,
 {
     /// Write the given value to the given buffered writer.
+    ///
+    /// # Arguments
+    ///
+    /// * `buf_writer` - The buffered writer to write to.
+    /// * `value` - The value to write.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` if the write operation is successful, otherwise returns an `Error`.
     pub(self) async fn write_value(
         buf_writer: &mut BufWriter<W>,
         value: &Vec<u8>,
@@ -31,6 +40,15 @@ where
     }
 
     /// Write the given tag to the given buffered writer.
+    ///
+    /// # Arguments
+    ///
+    /// * `buf_writer` - The buffered writer to write to.
+    /// * `tag` - The tag to write.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` if the write operation is successful, otherwise returns an `Error`.
     pub(self) async fn write_tag(buf_writer: &mut BufWriter<W>, tag: &Tag) -> Result<(), Error> {
         buf_writer.write_u64(tag.inner()).await?;
 
@@ -38,6 +56,16 @@ where
     }
 
     /// Write the given event to the given buffered writer.
+    ///
+    /// # Arguments
+    ///
+    /// * `buf_writer` - The buffered writer to write to.
+    /// * `event` - The event code to write.
+    /// * `value` - The value to write.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` if the write operation is successful, otherwise returns an `Error`.
     pub(self) async fn write_event(
         buf_writer: &mut BufWriter<W>,
         event: &EventCode,
@@ -54,6 +82,17 @@ where
     }
 
     /// Write the given command to the given buffered writer.
+    ///
+    /// # Arguments
+    ///
+    /// * `buf_writer` - The buffered writer to write to.
+    /// * `command` - The command code to write.
+    /// * `tag` - The tag to write.
+    /// * `value` - The value to write.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` if the write operation is successful, otherwise returns an `Error`.
     pub(self) async fn write_command(
         buf_writer: &mut BufWriter<W>,
         command: &CommandCode,
@@ -72,6 +111,16 @@ where
     }
 
     /// Write the given reply to the given buffered writer.
+    ///
+    /// # Arguments
+    ///
+    /// * `buf_writer` - The buffered writer to write to.
+    /// * `tag` - The tag to write.
+    /// * `value` - The value to write.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` if the write operation is successful, otherwise returns an `Error`.
     pub(self) async fn write_reply(
         buf_writer: &mut BufWriter<W>,
         tag: &Tag,
@@ -88,6 +137,15 @@ where
     }
 
     /// Write the given packet to the given buffered writer.
+    ///
+    /// # Arguments
+    ///
+    /// * `buf_writer` - The buffered writer to write to.
+    /// * `packet` - The packet to write.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` if the write operation is successful, otherwise returns an `Error`.
     pub(crate) async fn write(buf_writer: &mut BufWriter<W>, packet: &Packet) -> Result<(), Error> {
         match packet {
             Packet::Event(event, value) => Self::write_event(buf_writer, event, value).await,

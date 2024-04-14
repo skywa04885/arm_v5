@@ -18,6 +18,8 @@ nalgebra = { version = "0.32.5", features = ["serde", "serde-serialize"] }
 thiserror = "1.0.58"
 tokio = { version = "1.37.0", features = ["full"] }
 com = { path = "../../com" }
+tokio-util = { version = "0.7.10", features = ["full"] }
+uom = "0.36.0"
 
 [features]
 # This feature is used for production builds or when a dev server is not specified, DO NOT REMOVE!!
