@@ -35,6 +35,7 @@ use tokio_util::{sync::CancellationToken, task::TaskTracker};
 mod frontend;
 mod kinematics;
 mod servo_com;
+mod error;
 
 struct ArmState {
     pub kinematic_parameters: KinematicParameters,
@@ -173,8 +174,9 @@ async fn handle_arm_state_changes(app_handle: tauri::AppHandle) -> Result<(), Bo
 async fn main() {
     let (client_handle, mut client_worker) = Client::connect("127.0.0.1:5000").await.unwrap();
 
-    let motion_player_configuration = Configuration::new(Duration::from_millis(50));
-    let (mut player_worker, player_handle) = Player::new(client_handle, motion_player_configuration);
+    // let motion_player_configuration = Configuration::new(0.1_f64);
+    // let (mut player_worker, player_handle) = Player::new(client_handle, motion_player_configuration, 
+    //     );
 
     let task_tracker = TaskTracker::new();
     let cancellation_token = CancellationToken::new();
@@ -189,13 +191,13 @@ async fn main() {
     });
 
     // Spawn the motion player worker.
-    task_tracker.spawn({
-        let cancellation_token = cancellation_token.clone();
+    // task_tracker.spawn({
+    //     let cancellation_token = cancellation_token.clone();
 
-        async move {
-            player_worker.run(cancellation_token).await.unwrap();
-        }
-    });
+    //     async move {
+    //         player_worker.run(cancellation_token).await.unwrap();
+    //     }
+    // });
 
     tauri::Builder::default()
         .manage(ArmState::default())

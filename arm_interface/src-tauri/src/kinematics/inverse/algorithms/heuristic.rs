@@ -4,6 +4,7 @@ use std::sync::Arc;
 use nalgebra::{Matrix3x5, Matrix5x3, Vector3, Vector5};
 use thiserror::Error;
 
+use crate::kinematics::error::KinematicError;
 use crate::kinematics::inverse::algorithms::InverseKinematicAlgorithm;
 use crate::kinematics::model::{KinematicParameters, KinematicState};
 
@@ -96,7 +97,7 @@ impl InverseKinematicAlgorithm for HeuristicInverseKinematicAlgorithm {
         params: &KinematicParameters,
         state: &KinematicState,
         delta: &Vector3<f64>,
-    ) -> Result<KinematicState, Arc<dyn Error>> {
+    ) -> Result<KinematicState, KinematicError> {
         // Compute the jacobian matrix for the end-effector position.
         let jacobian: Matrix3x5<f64> = self.limb4_end_effector_position_jacobian(params, state);
 
@@ -105,9 +106,7 @@ impl InverseKinematicAlgorithm for HeuristicInverseKinematicAlgorithm {
             match jacobian.pseudo_inverse(self.pseudo_inverse_eps) {
                 Ok(x) => x,
                 Err(error) => {
-                    return Err(Arc::new(
-                        HeuristicInverseKinematicsAlgorithmError::PseudoInvertFailure(error),
-                    ));
+                    return Err(KinematicError::InversionFailure);
                 }
             };
 
@@ -124,7 +123,7 @@ impl InverseKinematicAlgorithm for HeuristicInverseKinematicAlgorithm {
         params: &KinematicParameters,
         state: &KinematicState,
         delta: &Vector3<f64>,
-    ) -> Result<KinematicState, Arc<dyn Error>> {
+    ) -> Result<KinematicState, KinematicError> {
         todo!()
     }
 }

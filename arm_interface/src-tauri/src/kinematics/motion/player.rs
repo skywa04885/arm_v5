@@ -1,25 +1,23 @@
-use std::time::{Duration, Instant};
-
-use com::client;
-use tokio::{select, sync::mpsc, time::sleep};
+use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    kinematics::error::Error,
-    servo_com::{
-        commands::{ClearPoseBufferCommand, GetPoseBufferCapacityCommand},
-        replies::{ClearPoseBufferReply, GetPoseBufferCapacityReply},
+    error::Error,
+    kinematics::{
+        inverse::solvers::{KinematicInverseSolverResult, KinematicSolver},
+        model::{KinematicParameters, KinematicState},
     },
+    servo_com::ServoClientHandleFacade,
 };
 
 use super::Motion;
 
 pub(crate) struct Configuration {
-    delta_time: Duration,
+    delta_time: f64,
 }
 
 impl Configuration {
-    pub fn new(delta_time: Duration) -> Self {
+    pub fn new(delta_time: f64) -> Self {
         Self { delta_time }
     }
 }
@@ -34,10 +32,23 @@ pub(crate) struct Player;
 impl Player {
     pub const CHANNEL_CAPACITY: usize = 64_usize;
 
-    pub fn new(client_handle: client::Handle, configuration: Configuration) -> (Worker, Handle) {
+    pub fn new(
+        handle: ServoClientHandleFacade,
+        configuration: Configuration,
+        kinematic_solver: Box<dyn KinematicSolver>,
+        kinematic_params: KinematicParameters,
+        kinematic_state: KinematicState,
+    ) -> (Worker, Handle) {
         let (instruction_sender, instruction_receiver) = mpsc::channel(Self::CHANNEL_CAPACITY);
 
-        let worker = Worker::new(client_handle, instruction_receiver, configuration);
+        let worker = Worker::new(
+            handle,
+            instruction_receiver,
+            configuration,
+            kinematic_solver,
+            kinematic_params,
+            kinematic_state,
+        );
         let handle = Handle::new(instruction_sender);
 
         (worker, handle)
@@ -45,93 +56,72 @@ impl Player {
 }
 
 pub(crate) struct Worker {
-    client_handle: client::Handle,
+    handle: ServoClientHandleFacade,
     instruction_receiver: mpsc::Receiver<Instructon>,
     configuration: Configuration,
-    motion: Option<Box<dyn Motion>>,
+    kinematic_solver: Box<dyn KinematicSolver>,
+    kparams: KinematicParameters,
+    kinematic_state: KinematicState,
 }
 
 impl Worker {
     pub fn new(
-        client_handle: client::Handle,
+        handle: ServoClientHandleFacade,
         instruction_receiver: mpsc::Receiver<Instructon>,
         configuration: Configuration,
+        kinematic_solver: Box<dyn KinematicSolver>,
+        kinematic_params: KinematicParameters,
+        kinematic_state: KinematicState,
     ) -> Self {
         Self {
-            client_handle,
+            handle,
             instruction_receiver,
             configuration,
-            motion: None,
+            kinematic_solver,
+            kparams: kinematic_params,
+            kinematic_state,
         }
     }
 
-    /// Retrieves the buffer capacity for the task.
-    ///
-    /// This function sends a command to the client and waits for the response containing the capacity
-    /// of the pose buffer. It returns the capacity as a `usize` if successful, or an `Error` if an
-    /// error occurs during the process.
-    ///
-    /// # Arguments
-    ///
-    /// * `cancellation_token` - A reference to a `CancellationToken` used for cancellation.
-    ///
-    /// # Returns
-    ///
-    /// * `Result<usize, Error>` - The buffer capacity if successful, or an `Error` if an error occurs.
-    pub(self) async fn get_buffer_capacity(
+    async fn run_motion(
         &mut self,
-        cancellation_token: &CancellationToken,
-    ) -> Result<usize, Error> {
-        let command = ClearPoseBufferCommand::new();
-
-        // Send the command and wait for the response containing the capacity.
-        let GetPoseBufferCapacityReply { capacity } = self
-            .client_handle
-            .write_serializable_command_with_cancellation(command, &cancellation_token)
-            .await?;
-
-        // Return the capacity.
-        Ok(capacity)
-    }
-
-    /// Clears the pose buffer.
-    ///
-    /// This function sends a command to the client to clear the pose buffer. It returns `Ok(())` if
-    /// successful, or an `Error` if an error occurs during the process.
-    ///
-    /// # Arguments
-    ///
-    /// * `cancellation_token` - A reference to a `CancellationToken` used for cancellation.
-    ///
-    /// # Returns
-    ///
-    /// * `Result<(), Error>` - `Ok(())` if successful, or an `Error` if an error occurs.
-    pub(self) async fn clear_pose_buffer(
-        &mut self,
-        cancellation_token: &CancellationToken,
+        motion: Box<dyn Motion>,
+        cancellation_token: CancellationToken,
     ) -> Result<(), Error> {
-        let command = ClearPoseBufferCommand::new();
+        self.handle.clear_pose_buffer(&cancellation_token).await?;
 
-        _ = self
-            .client_handle
-            .write_serializable_command_with_cancellation::<_, ClearPoseBufferReply>(
-                command,
-                cancellation_token,
-            )
-            .await?;
+        let mut available = self.handle.get_buffer_capacity(&cancellation_token).await?;
+
+        let mut t = 0_f64;
+
+        let mut new_kstate = self.kinematic_state.clone();
+
+        while let Some(target_position) = motion.interpolate(t) {
+            new_kstate = match self.kinematic_solver.translate_limb4_end_effector(
+                &self.kparams,
+                &new_kstate,
+                &target_position,
+            )? {
+                KinematicInverseSolverResult::Reached {
+                    iterations,
+                    delta_position_magnitude,
+                    new_state,
+                } => new_state,
+                KinematicInverseSolverResult::Unreachable => {
+                    return Err(Error::Generic("Could not reach target".into()))
+                }
+            };
+
+            // self.handle.
+
+            t += self.configuration.delta_time;
+        }
 
         Ok(())
     }
+
     pub(crate) async fn run(&mut self, cancellation_token: CancellationToken) -> Result<(), Error> {
-        let start_instant = Instant::now();
-
-        // Clear the pose buffer, to discard any previous movements.
-        self.clear_pose_buffer(&cancellation_token).await?;
-
-        // Get the total capacity of the buffer.
-        let capacity = self.get_buffer_capacity(&cancellation_token).await?;
-
-        loop {}
+        todo!()
     }
 }
 

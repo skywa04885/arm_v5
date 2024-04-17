@@ -3,7 +3,7 @@ use std::{error::Error, sync::Arc};
 use nalgebra::Vector3;
 use serde::Serialize;
 
-use crate::kinematics::{forward::algorithms::ForwardKinematicAlgorithm, model::{KinematicParameters, KinematicState}};
+use crate::kinematics::{error::KinematicError, forward::algorithms::ForwardKinematicAlgorithm, model::{KinematicParameters, KinematicState}};
 
 use super::algorithms::InverseKinematicAlgorithm;
 
@@ -26,7 +26,7 @@ pub trait KinematicSolver: Send + Sync {
         params: &KinematicParameters,
         state: &KinematicState,
         target_position: &Vector3<f64>,
-    ) -> Result<KinematicInverseSolverResult, Arc<dyn Error>>;
+    ) -> Result<KinematicInverseSolverResult, KinematicError>;
 
     /// Rotate the end-effector of the fourth-link.
     fn rotate_limb4_end_effector(
@@ -34,7 +34,7 @@ pub trait KinematicSolver: Send + Sync {
         params: &KinematicParameters,
         state: &KinematicState,
         target_position: &Vector3<f64>,
-    ) -> Result<KinematicInverseSolverResult, Arc<dyn Error>>;
+    ) -> Result<KinematicInverseSolverResult, KinematicError>;
 
     fn inverse_algorithm(&self) -> &Arc<dyn InverseKinematicAlgorithm>;
 
