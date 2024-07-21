@@ -85,16 +85,12 @@ where
 
 /// This enum represents a reply subscriber.
 pub(self) enum ReplySubscriber {
-    /// A channel that will receive the reply.
-    Channel(oneshot::Sender<Vec<u8>>),
     /// A closure that will receive the reply.
     Closure(Box<dyn FnOnce(Vec<u8>) + Send + Sync + 'static>),
 }
 
 /// This enum represents an event subscriber.
 pub(self) enum EventSubscriber {
-    /// A channel that will receive the event.
-    Channel(mpsc::Sender<Vec<u8>>),
     /// A closure that will receive the event.
     Closure(Box<dyn Fn(Vec<u8>) + Send + Sync + 'static>),
 }
@@ -199,24 +195,7 @@ impl Subscribers {
         }
     }
 
-    /// subscribe to the event using a newly created channel.
-    pub(super) async fn subscribe_to_event_with_channel(
-        &self,
-        event: EventCode,
-    ) -> Result<(SubscriberId, mpsc::Receiver<Vec<u8>>), Error> {
-        // Create the channel.
-        let (channel_sender, channel_receiver) = mpsc::channel(64_usize);
-
-        // Subscribe to the event.
-        let subscriber_id = self
-            .subscribe_to_event(event, EventSubscriber::Channel(channel_sender))
-            .await?;
-
-        // Return the receiver.
-        Ok((subscriber_id, channel_receiver))
-    }
-
-    /// Subscribe to the reply that has the given event using the given closure.
+     /// Subscribe to the reply that has the given event using the given closure.
     pub(super) async fn subscribe_to_event_with_closure<F>(
         &self,
         event: EventCode,
@@ -246,22 +225,6 @@ impl Subscribers {
 
         // Return success.
         Ok(())
-    }
-
-    /// Subscribe to the reply using a newly created channel.
-    pub(super) async fn subscribe_to_reply_with_channel(
-        &self,
-        tag: Tag,
-    ) -> Result<oneshot::Receiver<Vec<u8>>, Error> {
-        // Create the channel.
-        let (channel_sender, channel_receiver) = oneshot::channel();
-
-        // Subscribe.
-        self.subscribe_to_reply(tag, ReplySubscriber::Channel(channel_sender))
-            .await?;
-
-        // Return the receiver.
-        Ok(channel_receiver)
     }
 
     /// Subscribe to the reply that has the given tag using the given closure.
@@ -328,16 +291,10 @@ where
             for subscriber in subscribers.iter() {
                 // Match the subscriber.
                 match subscriber {
-                    // Send the event to the channel if it is not closed.
-                    (_, EventSubscriber::Channel(sender)) if !sender.is_closed() => {
-                        _ = sender.send(value.clone()).await;
-                    }
                     // Call the closure with the event.
                     (_, EventSubscriber::Closure(closure)) => {
                         closure(value.clone());
                     }
-                    // Do nothing if the channel is closed.
-                    _ => {}
                 }
             }
         }
@@ -351,14 +308,8 @@ where
         if let Some(subscriber) = self.subscribers.take_reply_subscriber_with_tag(tag).await {
             // Match the subscriber.
             match subscriber {
-                // Send the value to the channel if it is not closed.
-                ReplySubscriber::Channel(sender) if !sender.is_closed() => {
-                    _ = sender.send(value);
-                }
                 // Call the closure with the value.
                 ReplySubscriber::Closure(closure) => closure(value),
-                // Do nothing if the channel is closed.
-                _ => {}
             }
         }
 

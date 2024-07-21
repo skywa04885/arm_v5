@@ -26,16 +26,16 @@ pub mod receiver;
 pub mod transmitter;
 
 /// This trait means that the thing implementing it is a command.
-pub trait Command: Serialize {
+pub trait Command: Serialize + Send {
     /// Get the command code.
     fn code(&self) -> CommandCode;
 }
 
 /// This trait means that the thing implemting it is a reply.
-pub trait Reply: DeserializeOwned {}
+pub trait Reply: DeserializeOwned + Send {}
 
 /// This trait means that the thing implementing it is an event.
-pub trait Event: DeserializeOwned {
+pub trait Event: DeserializeOwned + Send {
     /// Get the event code.
     fn code(&self) -> EventCode;
 }
@@ -144,7 +144,7 @@ impl Handle {
         }
     }
 
-    pub async fn write_serializable_command_with_cancellation<C, R>(
+    pub async fn serde_write_cmd_wc<C, R>(
         &self,
         command: C,
         cancellation_token: &CancellationToken,
@@ -164,27 +164,24 @@ impl Handle {
         C: Command,
         R: Reply,
     {
-        let code = command.code();
-        let value = rmp_serde::to_vec(&command).map_err(|_| Error::SerdeSerError)?;
+        let (sender, receiver) = oneshot::channel::<Result<R, Error>>();
 
-        let vec = self
-            .write_command_reply_to_channel(code, value)
-            .await?
-            .await
-            .map_err(|_| Error::Generic("Failed to receive reply.".into()))?;
+        self.write_serializable_command_reply_to_closure(command, move |x| {
+            let _ = sender.send(x);
+        })
+        .await?;
 
-        rmp_serde::from_slice(&vec).map_err(|_| Error::DeserializeError)
+        receiver.await.map_err(|_| Error::Cancelled).and_then(|x| x)
     }
 
     /// Write the given serializable command and reply to the given closure.
-    pub async fn write_serializable_command_reply_to_closure<S, F, R>(
+    pub async fn write_serializable_command_reply_to_closure<S, R>(
         &self,
         command: S,
-        closure: F,
+        closure: impl FnOnce(Result<R, Error>) + Send + Sync + 'static,
     ) -> Result<(), Error>
     where
         S: Command,
-        F: FnOnce(Result<R, Error>) + Send + Sync + 'static,
         R: Reply,
     {
         // Get the command code.
@@ -202,15 +199,12 @@ impl Handle {
     }
 
     /// Write the given command and call the given closure when the reply is received.
-    pub async fn write_command_reply_to_closure<F>(
+    pub async fn write_command_reply_to_closure(
         &self,
         code: CommandCode,
         value: Vec<u8>,
-        closure: F,
-    ) -> Result<(), Error>
-    where
-        F: FnOnce(Vec<u8>) + Send + Sync + 'static,
-    {
+        closure: impl FnOnce(Vec<u8>) + Send + Sync + 'static,
+    ) -> Result<(), Error> {
         // Generate the tag of the command and create the packet.
         let tag = self.tag_generator.generate();
         let packet = Packet::Command(code, tag, value);
@@ -228,38 +222,13 @@ impl Handle {
         Ok(())
     }
 
-    /// Write the given command and return a receiver that will receive the reply.
-    pub async fn write_command_reply_to_channel(
-        &self,
-        code: CommandCode,
-        value: Vec<u8>,
-    ) -> Result<oneshot::Receiver<Vec<u8>>, Error> {
-        // Generate the tag of the command and create the packet.
-        let tag = self.tag_generator.generate();
-        let packet = Packet::Command(code, tag, value);
-
-        // Subscribe to the reply.
-        let receiver = self
-            .receiver_handle
-            .subscribers()
-            .subscribe_to_reply_with_channel(tag)
-            .await?;
-
-        // Write the packet to the transmitter.
-        self.transmitter_handle.write_packet(packet).await?;
-
-        // Return the receiver.
-        Ok(receiver)
-    }
-
     /// Subscribe to the given event in a way that the closure gets called when it's sent.
-    pub async fn subscribe_to_event_with_closure<F, E>(
+    pub async fn serde_sub_to_ev<E>(
         &self,
         code: EventCode,
-        closure: F,
+        closure: impl Fn(Result<E, Error>) + Send + Sync + 'static,
     ) -> Result<SubscriberId, Error>
     where
-        F: Fn(Result<E, Error>) + Send + Sync + 'static,
         E: Event,
     {
         self.receiver_handle
@@ -271,7 +240,7 @@ impl Handle {
     }
 
     /// Unsubscribe the subscriber that has the given id from the given event.
-    pub async fn unsubscribe_from_event(
+    pub async fn unsub_ev(
         &self,
         code: EventCode,
         subscriber_id: SubscriberId,

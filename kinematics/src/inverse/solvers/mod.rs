@@ -1,16 +1,20 @@
-use std::{error::Error, sync::Arc};
+use std::sync::Arc;
 
 use nalgebra::Vector3;
 use serde::Serialize;
 
-use crate::kinematics::{error::KinematicError, forward::algorithms::ForwardKinematicAlgorithm, model::{KinematicParameters, KinematicState}};
+use crate::{
+    error::KinematicError,
+    forward::algorithms::ForwardKinematicAlgorithm,
+    model::{KinematicParameters, KinematicState},
+};
 
 use super::algorithms::InverseKinematicAlgorithm;
 
 pub mod heuristic;
 
 #[derive(Serialize)]
-pub enum KinematicInverseSolverResult {
+pub enum IKSolverResult {
     Unreachable,
     Reached {
         iterations: usize,
@@ -26,7 +30,7 @@ pub trait KinematicSolver: Send + Sync {
         params: &KinematicParameters,
         state: &KinematicState,
         target_position: &Vector3<f64>,
-    ) -> Result<KinematicInverseSolverResult, KinematicError>;
+    ) -> Result<IKSolverResult, KinematicError>;
 
     /// Rotate the end-effector of the fourth-link.
     fn rotate_limb4_end_effector(
@@ -34,7 +38,7 @@ pub trait KinematicSolver: Send + Sync {
         params: &KinematicParameters,
         state: &KinematicState,
         target_position: &Vector3<f64>,
-    ) -> Result<KinematicInverseSolverResult, KinematicError>;
+    ) -> Result<IKSolverResult, KinematicError>;
 
     fn inverse_algorithm(&self) -> &Arc<dyn InverseKinematicAlgorithm>;
 

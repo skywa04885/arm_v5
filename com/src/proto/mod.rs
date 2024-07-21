@@ -3,7 +3,12 @@ pub struct EventCode(u32);
 
 impl EventCode {
     #[inline(always)]
-    pub const fn new(inner: u32) -> Self {
+    pub const fn const_new(inner: u32) -> Self {
+        Self(inner)
+    }
+    
+    #[inline(always)]
+    pub fn new(inner: u32) -> Self {
         Self(inner)
     }
 

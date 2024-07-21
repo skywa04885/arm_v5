@@ -1,18 +1,18 @@
 use nalgebra::{Matrix3, Vector3};
 
-use crate::kinematics::forward::algorithms::ForwardKinematicAlgorithm;
-use crate::kinematics::model::{KinematicParameters, KinematicState};
+use crate::forward::algorithms::ForwardKinematicAlgorithm;
+use crate::model::{KinematicParameters, KinematicState};
 
 /// Analytical forward kinematic approach, see the derivation notebook for the specifics.
-pub struct AnalyticalForwardKinematicAlgorithm {}
+pub struct AnalyticalFKAlgorithm {}
 
-impl Default for AnalyticalForwardKinematicAlgorithm {
+impl Default for AnalyticalFKAlgorithm {
     fn default() -> Self {
         Self {}
     }
 }
 
-impl ForwardKinematicAlgorithm for AnalyticalForwardKinematicAlgorithm {
+impl ForwardKinematicAlgorithm for AnalyticalFKAlgorithm {
     fn limb0_position_vector(
         &self,
         &KinematicParameters { l_0, .. }: &KinematicParameters,
@@ -94,7 +94,7 @@ impl ForwardKinematicAlgorithm for AnalyticalForwardKinematicAlgorithm {
             theta_1,
             theta_2,
             theta_3,
-            theta_4,
+            ..
         }: &KinematicState,
     ) -> Vector3<f64> {
         Vector3::<f64>::new(
@@ -117,33 +117,15 @@ impl ForwardKinematicAlgorithm for AnalyticalForwardKinematicAlgorithm {
 
     fn limb4_euler_angles(
         &self,
-        &KinematicParameters {
-            l_0,
-            l_1,
-            l_2,
-            l_3,
-            l_4,
-        }: &KinematicParameters,
-        &KinematicState {
-            theta_0,
-            theta_1,
-            theta_2,
-            theta_3,
-            theta_4,
-        }: &KinematicState,
+        &KinematicParameters { .. }: &KinematicParameters,
+        &KinematicState { .. }: &KinematicState,
     ) -> Vector3<f64> {
         todo!()
     }
 
     fn limb4_orientation_matrix(
         &self,
-        &KinematicParameters {
-            l_0,
-            l_1,
-            l_2,
-            l_3,
-            l_4,
-        }: &KinematicParameters,
+        &KinematicParameters { .. }: &KinematicParameters,
         &KinematicState {
             theta_0,
             theta_1,
@@ -174,9 +156,9 @@ impl ForwardKinematicAlgorithm for AnalyticalForwardKinematicAlgorithm {
 pub mod tests {
     use nalgebra::Vector3;
 
-    use crate::kinematics::forward::algorithms::analytical::AnalyticalForwardKinematicAlgorithm;
-    use crate::kinematics::forward::algorithms::ForwardKinematicAlgorithm;
-    use crate::kinematics::model::{KinematicParameters, KinematicState};
+    use crate::forward::algorithms::analytical::AnalyticalFKAlgorithm;
+    use crate::forward::algorithms::ForwardKinematicAlgorithm;
+    use crate::model::{KinematicParameters, KinematicState};
 
     #[test]
     pub fn solver_for_straight_pose() {
@@ -193,8 +175,8 @@ pub mod tests {
         let params: KinematicParameters = KinematicParameters::default();
 
         // Create the analytical solver.
-        let solver: AnalyticalForwardKinematicAlgorithm =
-            AnalyticalForwardKinematicAlgorithm::default();
+        let solver: AnalyticalFKAlgorithm =
+            AnalyticalFKAlgorithm::default();
 
         // Make sure that the fourth limb position vector is correct.
         assert_eq!(

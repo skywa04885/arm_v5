@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use nalgebra::{Matrix3, Vector3};
 
-use crate::kinematics::model::{KinematicParameters, KinematicState};
+use crate::model::{KinematicParameters, KinematicState};
 
 pub mod analytical;
 

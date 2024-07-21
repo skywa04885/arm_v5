@@ -1,12 +1,9 @@
-use std::error::Error;
-use std::sync::Arc;
-
 use nalgebra::{Matrix3x5, Matrix5x3, Vector3, Vector5};
 use thiserror::Error;
 
-use crate::kinematics::error::KinematicError;
-use crate::kinematics::inverse::algorithms::InverseKinematicAlgorithm;
-use crate::kinematics::model::{KinematicParameters, KinematicState};
+use crate::error::KinematicError;
+use crate::inverse::algorithms::InverseKinematicAlgorithm;
+use crate::model::{KinematicParameters, KinematicState};
 
 #[derive(Debug, Error)]
 pub enum HeuristicInverseKinematicsAlgorithmError {
@@ -14,11 +11,11 @@ pub enum HeuristicInverseKinematicsAlgorithmError {
     PseudoInvertFailure(&'static str),
 }
 
-pub struct HeuristicInverseKinematicAlgorithm {
+pub struct HeuristicIKAlgorithm {
     pseudo_inverse_eps: f64,
 }
 
-impl Default for HeuristicInverseKinematicAlgorithm {
+impl Default for HeuristicIKAlgorithm {
     fn default() -> Self {
         Self {
             pseudo_inverse_eps: 0.0000000000001,
@@ -26,22 +23,18 @@ impl Default for HeuristicInverseKinematicAlgorithm {
     }
 }
 
-impl HeuristicInverseKinematicAlgorithm {
+impl HeuristicIKAlgorithm {
     fn limb4_end_effector_position_jacobian(
         &self,
         &KinematicParameters {
-            l_0,
-            l_1,
-            l_2,
-            l_3,
-            l_4,
+            l_1, l_2, l_3, l_4, ..
         }: &KinematicParameters,
         &KinematicState {
             theta_0,
             theta_1,
             theta_2,
             theta_3,
-            theta_4,
+            ..
         }: &KinematicState,
     ) -> Matrix3x5<f64> {
         Matrix3x5::<f64>::new(
@@ -91,7 +84,7 @@ impl HeuristicInverseKinematicAlgorithm {
     }
 }
 
-impl InverseKinematicAlgorithm for HeuristicInverseKinematicAlgorithm {
+impl InverseKinematicAlgorithm for HeuristicIKAlgorithm {
     fn translate_limb4_end_effector(
         &self,
         params: &KinematicParameters,
@@ -105,11 +98,10 @@ impl InverseKinematicAlgorithm for HeuristicInverseKinematicAlgorithm {
         let jacobian_inverse: Matrix5x3<f64> =
             match jacobian.pseudo_inverse(self.pseudo_inverse_eps) {
                 Ok(x) => x,
-                Err(error) => {
+                Err(_) => {
                     return Err(KinematicError::InversionFailure);
                 }
             };
-
 
         println!("{:?}", (jacobian));
         // Compute the new kinematic state and return it.
@@ -120,9 +112,9 @@ impl InverseKinematicAlgorithm for HeuristicInverseKinematicAlgorithm {
 
     fn rotate_limb4_end_effector(
         &self,
-        params: &KinematicParameters,
-        state: &KinematicState,
-        delta: &Vector3<f64>,
+        _params: &KinematicParameters,
+        _state: &KinematicState,
+        _delta: &Vector3<f64>,
     ) -> Result<KinematicState, KinematicError> {
         todo!()
     }
@@ -130,12 +122,12 @@ impl InverseKinematicAlgorithm for HeuristicInverseKinematicAlgorithm {
 
 #[cfg(test)]
 pub mod tests {
+    use crate::forward::algorithms::analytical::AnalyticalFKAlgorithm;
+    use crate::forward::algorithms::ForwardKinematicAlgorithm;
+    use crate::inverse::algorithms::heuristic::HeuristicIKAlgorithm;
+    use crate::inverse::algorithms::InverseKinematicAlgorithm;
+    use crate::model::{KinematicParameters, KinematicState};
     use nalgebra::Vector3;
-    use crate::kinematics::forward::algorithms::analytical::AnalyticalForwardKinematicAlgorithm;
-    use crate::kinematics::forward::algorithms::ForwardKinematicAlgorithm;
-    use crate::kinematics::inverse::algorithms::heuristic::HeuristicInverseKinematicAlgorithm;
-    use crate::kinematics::inverse::algorithms::InverseKinematicAlgorithm;
-    use crate::kinematics::model::{KinematicParameters, KinematicState};
 
     #[test]
     pub fn solve() {
@@ -153,10 +145,10 @@ pub mod tests {
 
         // Create the analytical forward kinematics algorithm and the heuristic
         //  inverse kinematics algorithm.
-        let fk_solver: AnalyticalForwardKinematicAlgorithm =
-            AnalyticalForwardKinematicAlgorithm::default();
-        let ik_solver: HeuristicInverseKinematicAlgorithm =
-            HeuristicInverseKinematicAlgorithm::default();
+        let fk_solver: AnalyticalFKAlgorithm =
+            AnalyticalFKAlgorithm::default();
+        let ik_solver: HeuristicIKAlgorithm =
+            HeuristicIKAlgorithm::default();
 
         let thresh: f64 = 10_f64.powf(-4_f64);
 
@@ -174,7 +166,9 @@ pub mod tests {
             }
 
             // Update the state.
-            state = ik_solver.translate_limb4_end_effector(&params, &state, &delta).unwrap()
+            state = ik_solver
+                .translate_limb4_end_effector(&params, &state, &delta)
+                .unwrap()
         }
 
         // Make sure that the algorithm reached the destinaton.

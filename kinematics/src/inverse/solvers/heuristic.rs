@@ -2,11 +2,11 @@ use std::sync::Arc;
 
 use nalgebra::Vector3;
 
-use crate::kinematics::{
+use crate::{
     error::KinematicError, forward::algorithms::ForwardKinematicAlgorithm, inverse::algorithms::InverseKinematicAlgorithm, model::{KinematicParameters, KinematicState}
 };
 
-use super::{KinematicInverseSolverResult, KinematicSolver};
+use super::{IKSolverResult, KinematicSolver};
 
 pub struct HeuristicSolverBuilder {
     inverse_algorithm: Arc<dyn InverseKinematicAlgorithm>,
@@ -89,7 +89,7 @@ impl KinematicSolver for HeuristicSolver {
         params: &KinematicParameters,
         state: &KinematicState,
         target_position: &Vector3<f64>,
-    ) -> Result<KinematicInverseSolverResult, KinematicError> {
+    ) -> Result<IKSolverResult, KinematicError> {
         let mut iterations: usize = 0_usize;
 
         // We need a new kinematic state, since it will be modified during
@@ -109,7 +109,7 @@ impl KinematicSolver for HeuristicSolver {
             //  the simply just exit, we've reached the target.
             let delta_position_magnitude = delta_position.magnitude();
             if delta_position_magnitude < self.threshold {
-                return Ok(KinematicInverseSolverResult::Reached {
+                return Ok(IKSolverResult::Reached {
                     iterations,
                     delta_position_magnitude,
                     new_state,
@@ -127,16 +127,16 @@ impl KinematicSolver for HeuristicSolver {
             iterations += 1_usize;
         }
 
-        Ok(KinematicInverseSolverResult::Unreachable)
+        Ok(IKSolverResult::Unreachable)
     }
 
     fn rotate_limb4_end_effector(
         &self,
-        params: &KinematicParameters,
-        state: &KinematicState,
-        target_position: &Vector3<f64>,
-    ) -> Result<KinematicInverseSolverResult, KinematicError> {
-        Ok(KinematicInverseSolverResult::Unreachable)
+        _params: &KinematicParameters,
+        _state: &KinematicState,
+        _target_position: &Vector3<f64>,
+    ) -> Result<IKSolverResult, KinematicError> {
+        Ok(IKSolverResult::Unreachable)
     }
 
     fn inverse_algorithm(&self) -> &Arc<dyn InverseKinematicAlgorithm> {

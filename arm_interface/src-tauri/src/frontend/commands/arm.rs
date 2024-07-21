@@ -1,10 +1,7 @@
 use nalgebra::Vector3;
 use serde::{Deserialize, Serialize};
 
-use crate::kinematics::{
-    inverse::solvers::KinematicInverseSolverResult,
-    model::{KinematicParameters, KinematicState},
-};
+use kinematics::model::{KinematicParameters, KinematicState};
 
 /// This response contains the current kinematic state.
 #[derive(Serialize)]
@@ -42,7 +39,7 @@ pub enum MoveEndEffectorResponse {
     Reached {
         delta_position_magnitude: f64,
         iterations: usize,
-    }
+    },
 }
 
 /// This command contains the response to the get vertices command.
@@ -51,3 +48,4 @@ pub enum MoveEndEffectorResponse {
 pub struct GetVerticesResponse {
     pub vertices: [Vector3<f64>; 6],
 }
+

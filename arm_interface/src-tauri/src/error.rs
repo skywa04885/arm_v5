@@ -1,8 +1,7 @@
 use std::borrow::Cow;
 
+use kinematics::error::KinematicError;
 use thiserror::Error;
-
-use crate::kinematics::error::KinematicError;
 
 #[derive(Error, Debug)]
 pub enum Error {

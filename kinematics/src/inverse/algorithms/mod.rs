@@ -1,6 +1,6 @@
 use nalgebra::Vector3;
 
-use crate::kinematics::{error::KinematicError, model::{KinematicParameters, KinematicState}};
+use crate::{error::KinematicError, model::{KinematicParameters, KinematicState}};
 
 pub mod heuristic;
 

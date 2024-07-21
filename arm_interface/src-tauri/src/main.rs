@@ -1,8 +1,12 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::{error::Error, sync::Arc, time::Duration};
+use std::{error::Error, sync::Arc};
 
+use arm::{
+    motion::player::{self, Player},
+    Arm,
+};
 use com::client::Client;
 use frontend::{
     commands::arm::{
@@ -13,53 +17,37 @@ use frontend::{
 };
 use kinematics::{
     forward::algorithms::{
-        analytical::AnalyticalForwardKinematicAlgorithm, compute_arm_vertices,
-        ForwardKinematicAlgorithm,
+        analytical::AnalyticalFKAlgorithm, compute_arm_vertices, ForwardKinematicAlgorithm,
     },
     inverse::{
-        algorithms::{heuristic::HeuristicInverseKinematicAlgorithm, InverseKinematicAlgorithm},
-        solvers::{
-            heuristic::HeuristicSolverBuilder, KinematicInverseSolverResult, KinematicSolver,
-        },
+        algorithms::heuristic::HeuristicIKAlgorithm,
+        solvers::{heuristic::HeuristicSolver, IKSolverResult},
     },
-    model::{KinematicParameters, KinematicState}, motion::player::{Configuration, Player},
+    model::{KinematicParameters, KinematicState},
 };
 use nalgebra::Vector3;
+use servo_com::Handle;
 use tauri::Manager;
-use tokio::{
-    spawn,
-    sync::watch::{Receiver as WatchReceiver, Sender as WatchSender},
-};
+use tokio::sync::watch::Receiver as WatchReceiver;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
-mod frontend;
-mod kinematics;
-mod servo_com;
+mod arm;
 mod error;
+mod frontend;
+mod servo_com;
 
-struct ArmState {
-    pub kinematic_parameters: KinematicParameters,
-    pub kinematic_state: WatchSender<KinematicState>,
-    pub kinematic_solver: Arc<dyn KinematicSolver>,
+struct AppState {
+    player_handle: player::Handle,
 }
 
-impl Default for ArmState {
-    fn default() -> Self {
-        // Create the inverse and forward algorithms.
-        let inverse_algorithm: Arc<dyn InverseKinematicAlgorithm> =
-            Arc::new(HeuristicInverseKinematicAlgorithm::default());
-        let forward_algorithm: Arc<dyn ForwardKinematicAlgorithm> =
-            Arc::new(AnalyticalForwardKinematicAlgorithm::default());
+impl AppState {
+    pub fn new(player_handle: player::Handle) -> Self {
+        Self { player_handle }
+    }
 
-        // Construct the kinematic solver.
-        let kinematic_solver: Arc<dyn KinematicSolver> =
-            Arc::new(HeuristicSolverBuilder::new(inverse_algorithm, forward_algorithm).build());
-
-        Self {
-            kinematic_parameters: KinematicParameters::default(),
-            kinematic_state: WatchSender::new(KinematicState::default()),
-            kinematic_solver,
-        }
+    #[inline]
+    pub fn player_handle(&self) -> &player::Handle {
+        &self.player_handle
     }
 }
 
@@ -71,23 +59,13 @@ fn greet(name: &str) -> String {
 
 /// This command gets the vertices.
 #[tauri::command]
-fn get_vertices(arm_state: tauri::State<ArmState>) -> GetVerticesResponse {
-    // Get the kinematic parameters and the kinematic state.
-    let params: KinematicParameters = arm_state.kinematic_parameters.clone();
-    let state: KinematicState = arm_state.kinematic_state.borrow().clone();
-
-    // Compute all the vertices.
-    let forward_algorithm: &Arc<dyn ForwardKinematicAlgorithm> =
-        arm_state.kinematic_solver.forward_algorithm();
-    let vertices: [Vector3<f64>; 6] = compute_arm_vertices(forward_algorithm, &params, &state);
-
-    // Send the response.
-    GetVerticesResponse { vertices }
+fn get_vertices(arm_state: tauri::State<AppState>) -> GetVerticesResponse {
+    todo!()
 }
 
 /// This handler can be used to get the kinematic state.
 #[tauri::command]
-fn get_kinematic_state(arm_state: tauri::State<ArmState>) -> GetKinematicStateResponse {
+fn get_kinematic_state(arm_state: tauri::State<AppState>) -> GetKinematicStateResponse {
     let kinematic_state: KinematicState = arm_state.kinematic_state.borrow().clone();
 
     GetKinematicStateResponse { kinematic_state }
@@ -95,7 +73,7 @@ fn get_kinematic_state(arm_state: tauri::State<ArmState>) -> GetKinematicStateRe
 
 /// This handler can be used to get the kinematic parameters.
 #[tauri::command]
-fn get_kinematic_parameters(arm_state: tauri::State<ArmState>) -> GetKinematicParametersResponse {
+fn get_kinematic_parameters(arm_state: tauri::State<AppState>) -> GetKinematicParametersResponse {
     let kinematic_parameters: KinematicParameters = arm_state.kinematic_parameters.clone();
 
     GetKinematicParametersResponse {
@@ -105,7 +83,7 @@ fn get_kinematic_parameters(arm_state: tauri::State<ArmState>) -> GetKinematicPa
 
 #[tauri::command]
 fn move_end_effector(
-    arm_state: tauri::State<ArmState>,
+    arm_state: tauri::State<AppState>,
     command: MoveEndEffectorCommand,
 ) -> Result<MoveEndEffectorResponse, String> {
     // Get the kinematic parameters and state.
@@ -113,13 +91,13 @@ fn move_end_effector(
     let state: KinematicState = arm_state.kinematic_state.borrow().clone();
 
     // Comoute the new kinematic state.
-    let solver_result: KinematicInverseSolverResult = arm_state
+    let solver_result: IKSolverResult = arm_state
         .kinematic_solver
         .translate_limb4_end_effector(&params, &state, &command.target_position)
         .map_err(|_| "Failed to translate end effector")?;
 
     match solver_result {
-        KinematicInverseSolverResult::Reached {
+        IKSolverResult::Reached {
             iterations,
             delta_position_magnitude,
             new_state,
@@ -136,13 +114,13 @@ fn move_end_effector(
                 iterations,
             })
         }
-        KinematicInverseSolverResult::Unreachable => Ok(MoveEndEffectorResponse::Unreachable),
+        IKSolverResult::Unreachable => Ok(MoveEndEffectorResponse::Unreachable),
     }
 }
 
 /// This function will handle arm state changes.
 async fn handle_arm_state_changes(app_handle: tauri::AppHandle) -> Result<(), Box<dyn Error>> {
-    let arm_state = app_handle.state::<ArmState>();
+    let arm_state = app_handle.state::<AppState>();
 
     let mut receiver: WatchReceiver<KinematicState> = arm_state.kinematic_state.subscribe();
 
@@ -174,10 +152,6 @@ async fn handle_arm_state_changes(app_handle: tauri::AppHandle) -> Result<(), Bo
 async fn main() {
     let (client_handle, mut client_worker) = Client::connect("127.0.0.1:5000").await.unwrap();
 
-    // let motion_player_configuration = Configuration::new(0.1_f64);
-    // let (mut player_worker, player_handle) = Player::new(client_handle, motion_player_configuration, 
-    //     );
-
     let task_tracker = TaskTracker::new();
     let cancellation_token = CancellationToken::new();
 
@@ -190,6 +164,23 @@ async fn main() {
         }
     });
 
+    let arm = Arc::new(Arm::new(
+        KinematicParameters::default(),
+        KinematicState::default(),
+        {
+            let ik = Arc::new(HeuristicIKAlgorithm::default());
+            let fk = Arc::new(AnalyticalFKAlgorithm::default());
+            Arc::new(HeuristicSolver::builder(ik, fk).build())
+        },
+    ));
+
+    let player_configuration = player::Configuration::new(0.05_f64);
+    let (player_worker, player_handle) = Player::new(
+        Handle::new(client_handle),
+        player_configuration,
+        arm,
+    );
+
     // Spawn the motion player worker.
     // task_tracker.spawn({
     //     let cancellation_token = cancellation_token.clone();
@@ -200,7 +191,7 @@ async fn main() {
     // });
 
     tauri::Builder::default()
-        .manage(ArmState::default())
+        .manage(AppState::new(player_handle))
         .invoke_handler(tauri::generate_handler![
             greet,
             get_kinematic_state,

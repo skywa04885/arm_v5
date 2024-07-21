@@ -1,14 +1,11 @@
+use std::sync::Arc;
+
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::{
-    error::Error,
-    kinematics::{
-        inverse::solvers::{KinematicInverseSolverResult, KinematicSolver},
-        model::{KinematicParameters, KinematicState},
-    },
-    servo_com::ServoClientHandleFacade,
-};
+use kinematics::inverse::solvers::{IKSolverResult, KinematicSolver};
+
+use crate::{arm::Arm, error::Error, servo_com::Handle};
 
 use super::Motion;
 
@@ -33,22 +30,13 @@ impl Player {
     pub const CHANNEL_CAPACITY: usize = 64_usize;
 
     pub fn new(
-        handle: ServoClientHandleFacade,
+        handle: Handle,
         configuration: Configuration,
-        kinematic_solver: Box<dyn KinematicSolver>,
-        kinematic_params: KinematicParameters,
-        kinematic_state: KinematicState,
+        arm: Arc<Arm>,
     ) -> (Worker, Handle) {
         let (instruction_sender, instruction_receiver) = mpsc::channel(Self::CHANNEL_CAPACITY);
 
-        let worker = Worker::new(
-            handle,
-            instruction_receiver,
-            configuration,
-            kinematic_solver,
-            kinematic_params,
-            kinematic_state,
-        );
+        let worker = Worker::new(handle, instruction_receiver, configuration, arm);
         let handle = Handle::new(instruction_sender);
 
         (worker, handle)
@@ -56,30 +44,24 @@ impl Player {
 }
 
 pub(crate) struct Worker {
-    handle: ServoClientHandleFacade,
+    handle: Handle,
     instruction_receiver: mpsc::Receiver<Instructon>,
     configuration: Configuration,
-    kinematic_solver: Box<dyn KinematicSolver>,
-    kparams: KinematicParameters,
-    kinematic_state: KinematicState,
+    arm: Arc<Arm>,
 }
 
 impl Worker {
     pub fn new(
-        handle: ServoClientHandleFacade,
+        handle: Handle,
         instruction_receiver: mpsc::Receiver<Instructon>,
         configuration: Configuration,
-        kinematic_solver: Box<dyn KinematicSolver>,
-        kinematic_params: KinematicParameters,
-        kinematic_state: KinematicState,
+        arm: Arc<Arm>,
     ) -> Self {
         Self {
             handle,
             instruction_receiver,
             configuration,
-            kinematic_solver,
-            kparams: kinematic_params,
-            kinematic_state,
+            arm,
         }
     }
 
@@ -94,25 +76,22 @@ impl Worker {
 
         let mut t = 0_f64;
 
-        let mut new_kstate = self.kinematic_state.clone();
+        let mut new_kinematic_state = self.arm.kinematic_state().clone();
+        let kinematic_params = self.arm.kinematic_parameters();
 
         while let Some(target_position) = motion.interpolate(t) {
-            new_kstate = match self.kinematic_solver.translate_limb4_end_effector(
-                &self.kparams,
-                &new_kstate,
+            new_kinematic_state = match self.arm.kinematic_solver().translate_limb4_end_effector(
+                kinematic_params,
+                &new_kinematic_state,
                 &target_position,
             )? {
-                KinematicInverseSolverResult::Reached {
-                    iterations,
-                    delta_position_magnitude,
-                    new_state,
-                } => new_state,
-                KinematicInverseSolverResult::Unreachable => {
+                IKSolverResult::Reached { new_state, .. } => new_state,
+                IKSolverResult::Unreachable => {
                     return Err(Error::Generic("Could not reach target".into()))
                 }
             };
 
-            // self.handle.
+            available -= 1;
 
             t += self.configuration.delta_time;
         }
